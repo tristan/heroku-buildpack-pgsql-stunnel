@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# bin/compile <build-dir> <cache-dir> <env-dir>
+
+# Configure environment
+set -e            # fail fast
+set -o pipefail   # don't ignore exit codes when piping output
+# set -x          # enable debugging
+
+# Clean up leaking environment
+unset GIT_DIR
+
+# Directories
+BUILD_DIR=$1
+BUILDPACK_DIR="$(dirname $(dirname $0))"
+
+echo "-----> Moving the configuration generation script into app/bin"
+mkdir -p $BUILD_DIR/bin
+cp "$BUILDPACK_DIR/bin/generate-config" $BUILD_DIR/bin
+chmod +x $BUILD_DIR/bin/generate-config
+
+echo "-----> Moving the start-stunnel script into app/bin"
+mkdir -p $BUILD_DIR/bin
+cp "$BUILDPACK_DIR/bin/start-stunnel" $BUILD_DIR/bin/
+chmod +x $BUILD_DIR/bin/start-stunnel
+
+echo "-----> stunnel done"

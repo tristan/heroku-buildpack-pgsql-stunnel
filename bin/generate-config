@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+# Enable this option to prevent stunnel failure with Amazon RDS when a dyno resumes after sleeping
+if [ -z "${ENABLE_STUNNEL_AMAZON_RDS_FIX}" ]; then
+  AMAZON_RDS_STUNNEL_OPTION=""
+else
+  AMAZON_RDS_STUNNEL_OPTION="options = NO_TICKET"
+fi
+
+mkdir -p /app/vendor/stunnel/var/run/stunnel/
+cat >> /app/vendor/stunnel/stunnel.conf << EOFEOF
+foreground = yes
+
+pid = /app/vendor/stunnel/stunnel4.pid
+
+options = NO_SSLv2
+options = SINGLE_ECDH_USE
+options = SINGLE_DH_USE
+socket = r:TCP_NODELAY=1
+options = NO_SSLv3
+${AMAZON_RDS_STUNNEL_OPTION}
+ciphers = HIGH:!ADH:!AECDH:!LOW:!EXP:!MD5:!3DES:!SRP:!PSK:@STRENGTH
+debug = ${STUNNEL_LOGLEVEL:-notice}
+EOFEOF
+
+IFS=':' read DB_USER DB_PASS DB_HOST DB_PORT DB_NAME <<< $(echo $DATABASE_URL | perl -lne 'print "$1:$2:$3:$4:$5" if /^postgres(?:ql)?:\/\/([^:]*):([^@]*)@(.*?):(.*?)\/(.*?)$/')
+
+cat >> /app/vendor/stunnel/stunnel.conf << EOFEOF
+[postgresql-heroku]
+client = yes
+protocol = pgsql
+accept  = /tmp/.s.PGSQL.6101
+connect = $DB_HOST:$DB_PORT
+retry = ${STUNNEL_CONNECTION_RETRY:-"no"}
+EOFEOF
+
+chmod go-rwx /app/vendor/stunnel/*
