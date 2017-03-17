@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+n=1
 
 # Enable this option to prevent stunnel failure with Amazon RDS when a dyno resumes after sleeping
 if [ -z "${ENABLE_STUNNEL_AMAZON_RDS_FIX}" ]; then
@@ -8,10 +9,10 @@ else
 fi
 
 mkdir -p /app/vendor/stunnel/var/run/stunnel/
-cat >> /app/vendor/stunnel/stunnel.conf << EOFEOF
+cat > /app/vendor/stunnel/stunnel.conf << EOFEOF
 foreground = yes
 
-pid = /app/vendor/stunnel/stunnel4.pid
+pid = /tmp/stunnel4.pid
 
 options = NO_SSLv2
 options = SINGLE_ECDH_USE
@@ -23,15 +24,33 @@ ciphers = HIGH:!ADH:!AECDH:!LOW:!EXP:!MD5:!3DES:!SRP:!PSK:@STRENGTH
 debug = ${STUNNEL_LOGLEVEL:-notice}
 EOFEOF
 
-IFS=':' read DB_USER DB_PASS DB_HOST DB_PORT DB_NAME <<< $(echo $DATABASE_URL | perl -lne 'print "$1:$2:$3:$4:$5" if /^postgres(?:ql)?:\/\/([^:]*):([^@]*)@(.*?):(.*?)\/(.*?)$/')
+if [ -z $STUNNEL_URLS ]; then
+    STUNNEL_URLS="DATABASE_URL"
+fi
 
-cat >> /app/vendor/stunnel/stunnel.conf << EOFEOF
-[postgresql-heroku]
+for STUNNEL_URL in $STUNNEL_URLS
+do
+  eval STUNNEL_URL_VALUE=\$$STUNNEL_URL
+
+  IFS=':' read DB_USER DB_PASS DB_HOST DB_PORT DB_NAME <<< \
+     $(echo $STUNNEL_URL_VALUE | perl -lne 'print "$1:$2:$3:$4:$5" if /^postgres(?:ql)?:\/\/([^:@]*)(?::([^@]*))?@([^:\/]*?)(?::(.*?))?\/(.*?)$/')
+
+  if [ ! -z $DB_PASS ]; then
+      DB_USER=$DB_USER:$DB_PASS
+  fi
+  export ${STUNNEL_URL}=postgres://$DB_USER@:610${n}/$DB_NAME
+  echo "Setting \$${STUNNEL_URL} environment var to " $(eval echo \$$STUNNEL_URL)
+
+  cat >> /app/vendor/stunnel/stunnel.conf << EOFEOF
+[postgresql-${STUNNEL_URL}]
 client = yes
 protocol = pgsql
-accept  = /tmp/.s.PGSQL.6101
+accept  = /tmp/.s.PGSQL.610${n}
 connect = $DB_HOST:$DB_PORT
 retry = ${STUNNEL_CONNECTION_RETRY:-"no"}
 EOFEOF
+
+  let "n += 1"
+done
 
 chmod go-rwx /app/vendor/stunnel/*
